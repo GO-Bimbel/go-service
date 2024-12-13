@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rencana-kerja-cron
+spec:
+  schedule: "0 17 * * 1-6"
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          containers:
+          - name: rencana-kerja-cron
+            image: 518200711443.dkr.ecr.ap-southeast-1.amazonaws.com/rencana-kerja-cron:latest
+            imagePullPolicy: Always
+            command: ["sh", "-c", "./cmd/main"]
+            volumeMounts:
+            - name: config
+              mountPath: /app/.env
+              subPath: .env
+          volumes:
+          - name: config
+            secret:
+              secretName: rencana-kerja-cron
+          restartPolicy: OnFailure
