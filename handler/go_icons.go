@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log"
 	"scheduler/database"
 	"scheduler/models"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -298,5 +300,144 @@ func FetchAndExportKaryawan(params QueryParams, db *gorm.DB) error {
 	}
 
 	log.Println("Excel file generated successfully")
+	return nil
+}
+
+type QueryParamsTobk struct {
+	list_kode_tob string
+	tahun_ajaran  string
+	tanggal_awal  string
+	tanggal_akhir string
+}
+
+func NewQueryParamsTobk() QueryParamsTobk {
+	return QueryParamsTobk{
+		list_kode_tob: "105455",
+		tahun_ajaran:  "2024/2025",
+		tanggal_awal:  "2024-11-16",
+		tanggal_akhir: "2024-11-18",
+	}
+}
+
+type InfoNilai struct {
+	FullCredit int `json:"fullcredit"`
+	HalfCredit int `json:"halfcredit"`
+	ZeroCredit int `json:"zerocredit"`
+}
+
+type DetilJawaban struct {
+	NoRegister        string    `json:"no_register"`
+	NamaJenisProduk   string    `json:"nama_jenis_produk"`
+	KodeTob           int       `json:"kode_tob"`
+	KodePaket         string    `json:"kode_paket"`
+	TahunAjaran       string    `json:"tahun_ajaran"`
+	IDKelompokUjian   int       `json:"id_kelompok_ujian"`
+	NamaKelompokUjian string    `json:"nama_kelompok_ujian"`
+	Nilai             int       `json:"nilai"`
+	InfoNilai         InfoNilai `json:"info_nilai"`
+}
+
+type Result struct {
+	CreatedAt    string         `json:"created_at"`
+	DetilHasil   []interface{}  `json:"detil_hasil"`
+	DetilJawaban []DetilJawaban `json:"detil_jawaban"`
+}
+
+type OpsiStruct struct {
+	Prop  string `json:"prop"`
+	Opsi  any    `json:"opsi"`
+	Nilai struct {
+		Fullcredit int `json:"fullcredit"`
+		Halfcredit int `json:"halfcredit"`
+		Zerocredit int `json:"zerocredit"`
+	} `json:"nilai"`
+}
+
+type QueryResult struct {
+	KodePaket         string     `gorm:"column:c_kode_paket" json:"c_kode_paket"`
+	IDSoal            int        `gorm:"column:c_id_soal"`
+	NomorSoal         int        `gorm:"column:c_nomor_soal"`
+	NamaKelompokUjian string     `gorm:"column:c_nama_kelompok_ujian"`
+	TipeSoal          string     `gorm:"column:c_tipe_soal"`
+	Opsi              OpsiStruct `gorm:"column:c_opsi"`
+}
+
+func (a *OpsiStruct) Scan(value interface{}) error {
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("type assertion to []byte failed")
+	}
+	return json.Unmarshal(bytes, &a)
+}
+
+func (a OpsiStruct) Value() (driver.Value, error) {
+	return json.Marshal(a)
+}
+
+func FetchDetilJawabanD(db *gorm.DB) error {
+	params := NewQueryParamsTobk()
+
+	dbTobk := database.DBTOBK
+
+	query := dbTobk.Table("hasil_jawaban hj")
+
+	if params.tanggal_awal != "" && params.tanggal_akhir != "" {
+		query = query.Where("hj.updated_at BETWEEN ? AND ?", params.tanggal_awal, params.tanggal_akhir)
+	}
+
+	if params.tahun_ajaran != "" {
+		query = query.Where("hj.tahun_ajaran = ?", params.tahun_ajaran)
+	}
+
+	if len(params.list_kode_tob) > 0 {
+		listKodeTob := strings.Split(params.list_kode_tob, ",")
+		query = query.Where("hj.kode_tob IN ?", listKodeTob)
+	}
+
+	var results []map[string]interface{}
+	err := query.Find(&results).Error
+	if err != nil {
+		log.Fatalf("Failed to fetch records: %v", err)
+		return err
+	}
+
+	listKodeTob := strings.Split(params.list_kode_tob, ",")
+
+	kodeTob := listKodeTob
+
+	var queryResults []QueryResult
+	if err := dbTobk.Debug().
+		Table("t_isi_tob tit").
+		Select("tit.c_kode_paket as c_kode_paket, ts.c_id_soal, tibs.c_nomor_soal, tku.c_nama_kelompok_ujian, ts.c_tipe_soal, ts.c_opsi").
+		Joins("JOIN t_paket_dan_bundel tpdb on tit.c_kode_paket = tpdb.c_kode_paket").
+		Joins("JOIN t_bundel_soal tbs on tpdb.c_id_bundel = tbs.c_id_bundel").
+		Joins("JOIN t_isi_bundel_soal tibs on tbs.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_soal ts on tibs.c_id_soal = ts.c_id_soal").
+		Joins("JOIN t_kelompok_ujian tku on tbs.c_id_kelompok_ujian = tku.c_id_kelompok_ujian").
+		Where("tit.c_kode_tob IN (?)", kodeTob).
+		Order("tit.c_nomor_urut asc, tpdb.c_urutan asc, tibs.c_nomor_soal asc").
+		Scan(&queryResults).Error; err != nil {
+		log.Println(err)
+		return err
+	}
+
+	hhah, _ := json.Marshal(queryResults)
+	fmt.Println(string(hhah))
+
+	// log.Printf("Query Results: %+v", queryResults)
+
+	// for _, result := range queryResults {
+	// 	fmt.Printf("Ops: %s\n", string(result.Opsi))
+	// }
+
+	// err = dbTobk.Raw(rawSQL, kodeTob).Scan(&queryResults).Error
+	// if err != nil {
+	// 	log.Fatalf("Failed to execute raw SQL query: %v", err)
+	// 	return err
+	// }
+	// log.Printf("Executing Query: %s, Params: %+v", rawSQL, listKodeTob)
+
+	// log.Printf("Query Results: %+v", queryResults)
+
 	return nil
 }
