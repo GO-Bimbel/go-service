@@ -7,6 +7,7 @@ import (
 	"log"
 	"scheduler/database"
 	"scheduler/models"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -326,27 +327,62 @@ type InfoNilai struct {
 }
 
 type DetilJawaban struct {
-	NoRegister        string    `json:"no_register"`
-	NamaJenisProduk   string    `json:"nama_jenis_produk"`
-	KodeTob           int       `json:"kode_tob"`
-	KodePaket         string    `json:"kode_paket"`
-	TahunAjaran       string    `json:"tahun_ajaran"`
-	IDKelompokUjian   int       `json:"id_kelompok_ujian"`
-	NamaKelompokUjian string    `json:"nama_kelompok_ujian"`
-	Nilai             int       `json:"nilai"`
-	InfoNilai         InfoNilai `json:"info_nilai"`
+	NoRegister         string      `json:"no_register"`
+	NamaJenisProduk    string      `json:"nama_jenis_produk"`
+	KodeTob            int         `json:"kode_tob"`
+	KodePaket          string      `json:"kode_paket"`
+	TahunAjaran        string      `json:"tahun_ajaran"`
+	KodeBab            string      `json:"kode_bab"`
+	NomorSoalSiswa     int         `json:"nomor_soal_siswa"`
+	NomorSoalDatabase  int         `json:"nomor_soal_database"`
+	IDKelompokUjian    int         `json:"id_kelompok_ujian"`
+	NamaKelompokUjian  string      `json:"nama_kelompok_ujian"`
+	IDSoal             int         `json:"id_soal"`
+	TipeSoal           string      `json:"tipe_soal"`
+	TingkatKesulitan   int         `json:"tingkat_kesulitan"`
+	KesempatanMenjawab interface{} `json:"kesempatan_menjawab"`
+	Jawaban            interface{} `json:"jawaban"`
+	KunciJawaban       interface{} `json:"kunci_jawaban"`
+	TranslatorEpb      interface{} `json:"translator_epb"`
+	JawabanEpb         interface{} `json:"jawaban_epb"`
+	KunciJawabanEpb    interface{} `json:"kunci_jawaban_epb"`
+	InfoNilai          struct {
+		Fullcredit int `json:"fullcredit"`
+		Halfcredit int `json:"halfcredit"`
+		Zerocredit int `json:"zerocredit"`
+	} `json:"info_nilai"`
+	Nilai            float64   `json:"nilai"`
+	IsRagu           bool      `json:"is_ragu"`
+	SudahDikumpulkan bool      `json:"sudah_dikumpulkan"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type DetilHasil struct {
+	IDKelompokUjian   int    `json:"id_kelompok_ujian"`
+	NamaKelompokUjian string `json:"nama_kelompok_ujian"`
+	Benar             int    `json:"benar"`
+	Salah             int    `json:"salah"`
+	Kosong            int    `json:"kosong"`
 }
 
 type Result struct {
-	CreatedAt    string         `json:"created_at"`
-	DetilHasil   []interface{}  `json:"detil_hasil"`
-	DetilJawaban []DetilJawaban `json:"detil_jawaban"`
+	Id           int             `gorm:"column:id"`
+	NoRegister   string          `gorm:"column:no_register"`
+	KodeTob      int             `gorm:"column:kode_tob"`
+	KodePaket    string          `gorm:"column:kode_paket"`
+	TahunAjaran  string          `gorm:"column:tahun_ajaran"`
+	DetilHasil   json.RawMessage `gorm:"column:detil_hasil"`
+	DetilJawaban json.RawMessage `gorm:"column:detil_jawaban"`
 }
 
 type OpsiStruct struct {
-	Prop  string `json:"prop"`
-	Opsi  any    `json:"opsi"`
-	Nilai struct {
+	Prop    string        `json:"prop"`
+	Opsi    any           `json:"opsi"`
+	Soal    any           `json:"soal"`
+	Keyword any           `json:"keyword"`
+	Kolom   []interface{} `json:"kolom"`
+	Kunci   any           `json:"kunci"`
+	Nilai   struct {
 		Fullcredit int `json:"fullcredit"`
 		Halfcredit int `json:"halfcredit"`
 		Zerocredit int `json:"zerocredit"`
@@ -354,7 +390,7 @@ type OpsiStruct struct {
 }
 
 type QueryResult struct {
-	KodePaket         string     `gorm:"column:c_kode_paket" json:"c_kode_paket"`
+	KodePaket         string     `gorm:"column:c_kode_paket"`
 	IDSoal            int        `gorm:"column:c_id_soal"`
 	NomorSoal         int        `gorm:"column:c_nomor_soal"`
 	NamaKelompokUjian string     `gorm:"column:c_nama_kelompok_ujian"`
@@ -372,6 +408,310 @@ func (a *OpsiStruct) Scan(value interface{}) error {
 
 func (a OpsiStruct) Value() (driver.Value, error) {
 	return json.Marshal(a)
+}
+
+type Pbt struct {
+	Opsi []struct {
+		Text    string `json:"text"`
+		Jawaban []struct {
+			Urut    int  `json:"urut"`
+			Jawaban bool `json:"jawaban"`
+		} `json:"jawaban"`
+	} `json:"opsi"`
+	Prop  interface{} `json:"prop"`
+	Kolom []struct {
+		Urut  int    `json:"urut"`
+		Judul string `json:"judul"`
+	} `json:"kolom"`
+	Nilai struct {
+		Fullcredit int `json:"fullcredit"`
+		Halfcredit int `json:"halfcredit"`
+		Zerocredit int `json:"zerocredit"`
+	} `json:"nilai"`
+	Jumlahopsi  int `json:"jumlahopsi"`
+	Jumlahkolom int `json:"jumlahkolom"`
+}
+
+type Jawaban struct {
+	Urut    int  `json:"urut"`
+	Jawaban bool `json:"jawaban"`
+}
+
+type Output struct {
+	Noreg          string
+	KodePaket      string
+	IdSoal         int
+	NoSoalDatabase int
+	KelompokUjian  string
+	JawabanSiswa   interface{}
+	KunciJawaban   interface{}
+}
+
+type KunciJawaban struct {
+	KunciJawaban interface{}
+	IdSoal       int
+}
+
+func ProcessRawDetilJSON(jsonData string) []DetilHasil {
+	var info []DetilHasil
+
+	err := json.Unmarshal([]byte(jsonData), &info)
+	if err != nil {
+		log.Fatalf("Error parsing JSON: %v", err)
+	}
+	return info
+}
+
+func ProcessRawJawabanJSON(jsonData string) []DetilJawaban {
+	var info []DetilJawaban
+
+	err := json.Unmarshal([]byte(jsonData), &info)
+	if err != nil {
+		log.Fatalf("Error parsing JSON: %v", err)
+	}
+
+	for i := range info {
+		switch v := info[i].KunciJawaban.(type) {
+		case string:
+
+			log.Printf("kunci_jawaban_epb is a string: %s", v)
+		case []interface{}:
+
+			log.Printf("kunci_jawaban_epb is an array: %+v", v)
+		default:
+			log.Printf("kunci_jawaban_epb has an unexpected type: %T", v)
+		}
+	}
+
+	return info
+}
+
+func setKunciJawaban(tipeSoal string, opsi OpsiStruct) interface{} {
+	switch tipeSoal {
+	case "PGB":
+		var kunciJawaban string
+		for k, v := range opsi.Opsi.(map[string]interface{}) {
+			if v.(map[string]interface{})["bobot"].(float64) == 100 {
+				kunciJawaban = k
+			}
+		}
+		return kunciJawaban
+
+	case "PBT":
+		var jawabanValue []int
+
+		for _, v := range opsi.Opsi.([]interface{}) {
+
+			marshalV, _ := json.Marshal(v)
+
+			var data map[string]interface{}
+			err := json.Unmarshal(marshalV, &data)
+			if err != nil {
+				log.Fatalf("Error unmarshalling JSON: %v", err)
+			}
+
+			dataJawaban := data["jawaban"].([]interface{})
+
+			var urut []Jawaban
+
+			for _, obj := range dataJawaban {
+
+				marshalObj, err := json.Marshal(obj)
+				if err != nil {
+					log.Fatalf("Error marshalling obj: %v", err)
+				}
+
+				var jawaban Jawaban
+				err = json.Unmarshal(marshalObj, &jawaban)
+				if err != nil {
+					log.Fatalf("Error unmarshalling obj to Jawaban: %v", err)
+				}
+
+				if jawaban.Jawaban {
+					urut = append(urut, jawaban)
+				}
+			}
+
+			if len(urut) > 0 {
+				jawabanValue = append(jawabanValue, urut[0].Urut-1)
+			} else {
+				jawabanValue = append(jawabanValue, -1)
+			}
+		}
+
+		return jawabanValue
+
+	case "PBK", "PBCT":
+		var kunciJawaban []map[string]interface{}
+
+		for _, v := range opsi.Kunci.(map[string]interface{}) {
+			if kunci, ok := v.(map[string]interface{}); ok {
+				kunciJawaban = append(kunciJawaban, kunci)
+			} else {
+				log.Printf("Failed to assert value to map[string]interface{}: %v", v)
+			}
+		}
+		return kunciJawaban
+
+	case "PBM":
+		var kunciJawabanPasangan []interface{}
+
+		for _, v := range opsi.Opsi.([]map[string]interface{}) {
+			if jodoh, ok := v["jodoh"]; ok {
+				kunciJawabanPasangan = append(kunciJawabanPasangan, jodoh)
+			} else {
+				kunciJawabanPasangan = append(kunciJawabanPasangan, -1)
+			}
+		}
+
+		return kunciJawabanPasangan
+
+	case "ESSAY", "ESSAY NUMERIK":
+
+		var kunciJawaban interface{}
+
+		kunciJawaban = opsi.Keyword
+		return kunciJawaban
+
+	case "ESSAY MAJEMUK":
+
+		var kunciJawabanMajemuk []interface{}
+
+		for _, val := range opsi.Soal.([]map[string]interface{}) {
+
+			if keywords, ok := val["keywords"]; ok {
+				kunciJawabanMajemuk = append(kunciJawabanMajemuk, keywords)
+			} else {
+				kunciJawabanMajemuk = append(kunciJawabanMajemuk, -1)
+			}
+		}
+		return kunciJawabanMajemuk
+
+	// to do case "PBB" but missing data in db
+	// case "PBB" :
+	// 	var kunciJawabanAlasan interface{}
+
+	// 	for _, val := range opsi.Opsi.(map[string]interface{}) {
+
+	// 	}
+
+	default:
+
+		var kunci interface{}
+		kunci = opsi.Kunci
+		return kunci
+	}
+}
+func setTranslatorEPB(opsi OpsiStruct) interface{} {
+
+	var kolom []interface{}
+	if opsi.Kolom != nil {
+		kolom = opsi.Kolom
+	} else {
+		return nil
+	}
+
+	if len(kolom) == 0 {
+		return kolom
+	}
+
+	kolomBaru := kolom[1:]
+
+	var result []string
+	for _, item := range kolomBaru {
+
+		if kolomItem, ok := item.(map[string]interface{}); ok {
+			judul, ok := kolomItem["judul"].(string)
+			if !ok {
+				continue
+			}
+
+			start := strings.Index(judul, "(")
+			end := strings.Index(judul, ")")
+			if end < 0 {
+				end = start + 2
+			}
+
+			if start < 0 {
+				result = append(result, strings.TrimSpace(judul)[:1])
+			} else {
+				result = append(result, strings.TrimSpace(judul[start+1:end]))
+			}
+		}
+	}
+
+	return result
+
+}
+
+func fillMissingAnswers(data []Output) []Output {
+
+	questionMap := make(map[int]Output)
+
+	for _, item := range data {
+		questionMap[item.IdSoal] = item
+	}
+
+	noregSet := make(map[string]struct{})
+	for _, item := range data {
+		noregSet[item.Noreg] = struct{}{}
+	}
+
+	var noregList []string
+	for noreg := range noregSet {
+		noregList = append(noregList, noreg)
+	}
+
+	var result []Output
+
+	for _, noreg := range noregList {
+		for _, question := range questionMap {
+			found := false
+			for _, item := range data {
+				if item.Noreg == noreg && item.IdSoal == question.IdSoal {
+					result = append(result, item)
+					found = true
+					break
+				}
+			}
+			if !found {
+
+				result = append(result, Output{
+					Noreg:          noreg,
+					KodePaket:      question.KodePaket,
+					IdSoal:         question.IdSoal,
+					NoSoalDatabase: question.NoSoalDatabase,
+					KelompokUjian:  question.KelompokUjian,
+					JawabanSiswa:   nil,
+				})
+			}
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Noreg == result[j].Noreg {
+			return result[i].NoSoalDatabase < result[j].NoSoalDatabase
+		}
+		return result[i].Noreg < result[j].Noreg
+	})
+
+	return result
+}
+
+func setTranslateJawabanEPB(jawaban []int, translator []string) []string {
+	var jawabanEPB []string
+
+	for _, item := range jawaban {
+		if item < 0 {
+			jawabanEPB = append(jawabanEPB, "")
+		} else if item >= 0 && item < len(translator) {
+			jawabanEPB = append(jawabanEPB, translator[item])
+		} else {
+			jawabanEPB = append(jawabanEPB, "")
+		}
+	}
+
+	return jawabanEPB
 }
 
 func FetchDetilJawabanD(db *gorm.DB) error {
@@ -394,12 +734,41 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 		query = query.Where("hj.kode_tob IN ?", listKodeTob)
 	}
 
-	var results []map[string]interface{}
-	err := query.Find(&results).Error
+	var results []Result
+	err := query.Debug().Find(&results).Error
 	if err != nil {
 		log.Fatalf("Failed to fetch records: %v", err)
 		return err
 	}
+
+	var output []Output
+	var idSoalList []int
+
+	for _, item := range results {
+
+		detilJawaban := ProcessRawJawabanJSON(string(item.DetilJawaban))
+
+		if len(detilJawaban) > 0 {
+			for _, jawaban := range detilJawaban {
+				idSoalList = append(idSoalList, jawaban.IDSoal)
+
+				newOutput := Output{
+					Noreg:          jawaban.NoRegister,
+					KodePaket:      jawaban.KodePaket,
+					IdSoal:         jawaban.IDSoal,
+					NoSoalDatabase: jawaban.NomorSoalDatabase,
+					KelompokUjian:  jawaban.NamaKelompokUjian,
+					JawabanSiswa:   jawaban.Jawaban,
+				}
+				output = append(output, newOutput)
+
+			}
+		} else {
+			log.Printf("detilJawaban is empty for item: %+v", item)
+		}
+	}
+
+	result := fillMissingAnswers(output)
 
 	listKodeTob := strings.Split(params.list_kode_tob, ",")
 
@@ -415,29 +784,86 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 		Joins("JOIN t_soal ts on tibs.c_id_soal = ts.c_id_soal").
 		Joins("JOIN t_kelompok_ujian tku on tbs.c_id_kelompok_ujian = tku.c_id_kelompok_ujian").
 		Where("tit.c_kode_tob IN (?)", kodeTob).
+		Where("ts.c_id_soal IN (?)", idSoalList).
 		Order("tit.c_nomor_urut asc, tpdb.c_urutan asc, tibs.c_nomor_soal asc").
 		Scan(&queryResults).Error; err != nil {
 		log.Println(err)
 		return err
 	}
 
-	hhah, _ := json.Marshal(queryResults)
-	fmt.Println(string(hhah))
+	var kunciJawabSoal []KunciJawaban
 
-	// log.Printf("Query Results: %+v", queryResults)
+	for _, item := range queryResults {
 
-	// for _, result := range queryResults {
-	// 	fmt.Printf("Ops: %s\n", string(result.Opsi))
-	// }
+		var translator_jawaban_epb interface{}
 
-	// err = dbTobk.Raw(rawSQL, kodeTob).Scan(&queryResults).Error
-	// if err != nil {
-	// 	log.Fatalf("Failed to execute raw SQL query: %v", err)
-	// 	return err
-	// }
-	// log.Printf("Executing Query: %s, Params: %+v", rawSQL, listKodeTob)
+		kunciJawaban := setKunciJawaban(item.TipeSoal, item.Opsi)
 
-	// log.Printf("Query Results: %+v", queryResults)
+		if item.TipeSoal == "PBT" {
+
+			translate_epb := setTranslatorEPB(item.Opsi)
+			translate_jawaban_epb := setTranslateJawabanEPB(kunciJawaban.([]int), translate_epb.([]string))
+			translator_jawaban_epb = translate_jawaban_epb
+
+		}
+
+		newOutput := KunciJawaban{
+			KunciJawaban: func() interface{} {
+				if translator_jawaban_epb != nil {
+					return translator_jawaban_epb
+				}
+				return kunciJawaban
+			}(),
+			IdSoal: item.IDSoal,
+		}
+		kunciJawabSoal = append(kunciJawabSoal, newOutput)
+
+	}
+
+	for i := range result {
+		for _, kunci := range kunciJawabSoal {
+			if result[i].IdSoal == kunci.IdSoal {
+				result[i].KunciJawaban = kunci.KunciJawaban
+				break
+			}
+		}
+	}
+
+	file := excelize.NewFile()
+	sheet := "Karyawan Data"
+	index, err := file.NewSheet(sheet)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	headers := []string{"No", "Nomor Register", "Kode Paket", "ID Soal", "Nomor Soal Database", "Kelompok Ujian", "Jawaban Siswa EPB", "Kunci Jawaban EPB"}
+
+	for i, header := range headers {
+		cell := getExcelColumnName(i) + "1"
+		file.SetCellValue(sheet, cell, header)
+	}
+
+	for i, kar := range result {
+
+		row := i + 2
+		file.SetCellValue(sheet, "A"+strconv.Itoa(row), i+1)
+		file.SetCellValue(sheet, "B"+strconv.Itoa(row), kar.Noreg)
+		file.SetCellValue(sheet, "C"+strconv.Itoa(row), kar.KodePaket)
+		file.SetCellValue(sheet, "D"+strconv.Itoa(row), kar.IdSoal)
+		file.SetCellValue(sheet, "E"+strconv.Itoa(row), kar.NoSoalDatabase)
+		file.SetCellValue(sheet, "F"+strconv.Itoa(row), kar.KelompokUjian)
+		file.SetCellValue(sheet, "G"+strconv.Itoa(row), kar.JawabanSiswa)
+		file.SetCellValue(sheet, "H"+strconv.Itoa(row), kar.KunciJawaban)
+
+	}
+
+	file.SetActiveSheet(index)
+
+	if err := file.SaveAs("Detil-Jawaban-D-TOBk.xlsx"); err != nil {
+		return err
+	}
+
+	log.Println("Excel file generated successfully")
 
 	return nil
 }
