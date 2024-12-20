@@ -613,6 +613,9 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 				translatedKunciJawabanSiswa = kar.KunciJawaban
 			}
 		}
+		if translatedJawabanSiswa == nil {
+			translatedJawabanSiswa = "-"
+		}
 
 		row := i + 2
 		file.SetCellValue(sheet, "A"+strconv.Itoa(row), i+1)
