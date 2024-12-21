@@ -18,6 +18,12 @@ type Config struct {
 	DBPassKBM       string
 	DBNameKBM       string
 	SSLModeKBM      string
+	DBHostTOBK      string
+	DBPortTOBK      string
+	DBUserTOBK      string
+	DBPassTOBK      string
+	DBNameTOBK      string
+	SSLModeTOBK     string
 	ServerPort      string
 	SetMaxIdleConns string
 	SetMaxOpenConns string
@@ -40,6 +46,13 @@ func LoadConfig() *Config {
 		"DB_PASS_KBM": &config.DBPassKBM,
 		"DB_NAME_KBM": &config.DBNameKBM,
 		"SSLMODE_KBM": &config.SSLModeKBM,
+
+		"DB_HOST_TOBK_EKS": &config.DBHostTOBK,
+		"DB_PORT_TOBK_EKS": &config.DBPortTOBK,
+		"DB_USER_TOBK_EKS": &config.DBUserTOBK,
+		"DB_PASS_TOBK_EKS": &config.DBPassTOBK,
+		"DB_NAME_TOBK_EKS": &config.DBNameTOBK,
+		"SSLMODE_TOBK_EKS": &config.SSLModeTOBK,
 
 		"RANGE_DAY": &config.RangeDay,
 	}

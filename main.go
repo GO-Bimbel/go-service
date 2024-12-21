@@ -4,7 +4,6 @@ import (
 	"scheduler/configs"
 	"scheduler/database"
 	"scheduler/handler"
-	"scheduler/utils"
 
 	log "github.com/sirupsen/logrus"
 
@@ -26,12 +25,13 @@ func main() {
 	// Connect to KBM database
 	database.ConnectKBMDatabase(config)
 
-	rd, err := utils.ConvertStringToInt(config.RangeDay)
+	database.ConnectTobkDatabase(config)
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Rencana kerja
-	handler.RencanaKerja(rd)
+	handler.FetchDetilJawabanH(database.DB)
+	// handler.FetchDetilJawabanD(database.DB)
 
 }

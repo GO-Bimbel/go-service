@@ -13,6 +13,7 @@ import (
 
 var DB *gorm.DB
 var DBKBM *gorm.DB
+var DBTOBK *gorm.DB
 
 func ConnectDatabase(cfg *configs.Config) *gorm.DB {
 	if cfg.SSLMode == "" {
@@ -56,6 +57,29 @@ func ConnectKBMDatabase(cfg *configs.Config) *gorm.DB {
 	log.Info("Database KBM connected")
 
 	DBKBM = db
+
+	return db
+}
+
+func ConnectTobkDatabase(cfg *configs.Config) *gorm.DB {
+	if cfg.SSLMode == "" {
+		cfg.SSLMode = "prefer"
+	}
+
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		cfg.DBHostTOBK, cfg.DBUserTOBK, cfg.DBPassTOBK, cfg.DBNameTOBK, cfg.DBPortTOBK, cfg.SSLModeTOBK,
+	)
+
+	var err error
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Error connecting to database TOBK EKS: %v", err)
+	}
+
+	log.Info("Database TOBK External connected")
+
+	DBTOBK = db
 
 	return db
 }
