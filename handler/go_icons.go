@@ -15,16 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func getExcelColumnName(index int) string {
-	columnName := ""
-	for index >= 0 {
-		remainder := index % 26
-		columnName = string(rune('A'+remainder)) + columnName
-		index = (index / 26) - 1
-	}
-	return columnName
-}
-
 type QueryParamsTobk struct {
 	list_kode_tob string
 	tahun_ajaran  string
@@ -569,7 +559,7 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 	headers := []string{"No", "Nomor Register", "Kode Paket", "ID Soal", "Nomor Soal Database", "Kelompok Ujian", "Jawaban Siswa EPB", "Kunci Jawaban EPB"}
 
 	for i, header := range headers {
-		cell := getExcelColumnName(i) + "1"
+		cell := getExcelColumnNameD(i) + "1"
 		file.SetCellValue(sheet, cell, header)
 	}
 
@@ -632,6 +622,309 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 	file.SetActiveSheet(index)
 
 	if err := file.SaveAs("Detil-Jawaban-D-TOBK.xlsx"); err != nil {
+		return err
+	}
+
+	log.Println("Excel file generated successfully")
+
+	return nil
+}
+
+func convertToStringArray(data []interface{}) []string {
+	result := []string{}
+	for _, item := range data {
+		result = append(result, fmt.Sprintf("%v", item))
+	}
+	return result
+}
+
+func getExcelColumnName(n int) string {
+	div := n
+	colName := ""
+	for div > 0 {
+		mod := (div - 1) % 26
+		colName = string('A'+mod) + colName
+		div = (div - mod) / 26
+	}
+	return colName
+}
+
+func getExcelColumnNameD(index int) string {
+	columnName := ""
+	for index >= 0 {
+		remainder := index % 26
+		columnName = string(rune('A'+remainder)) + columnName
+		index = (index / 26) - 1
+	}
+	return columnName
+}
+
+func convertIntSliceToInterface(data []int) []interface{} {
+	result := make([]interface{}, len(data))
+	for i, v := range data {
+		result[i] = v
+	}
+	return result
+}
+
+func FetchDetilJawabanH(db *gorm.DB) error {
+	params := NewQueryParamsTobk()
+
+	dbTobk := database.DBTOBK
+
+	query := dbTobk.Table("hasil_jawaban hj")
+
+	if params.tanggal_awal != "" && params.tanggal_akhir != "" {
+		query = query.Where("hj.updated_at BETWEEN ? AND ?", params.tanggal_awal, params.tanggal_akhir)
+	}
+
+	if params.tahun_ajaran != "" {
+		query = query.Where("hj.tahun_ajaran = ?", params.tahun_ajaran)
+	}
+
+	if len(params.list_kode_tob) > 0 {
+		listKodeTob := strings.Split(params.list_kode_tob, ",")
+		query = query.Where("hj.kode_tob IN ?", listKodeTob)
+	}
+
+	var results []Result
+	err := query.Debug().Find(&results).Error
+	if err != nil {
+		log.Fatalf("Failed to fetch records: %v", err)
+		return err
+	}
+
+	var output []Output
+	var idSoalList []int
+
+	for _, item := range results {
+
+		detilJawaban := ProcessRawJawabanJSON(string(item.DetilJawaban))
+
+		if len(detilJawaban) > 0 {
+			for _, jawaban := range detilJawaban {
+				idSoalList = append(idSoalList, jawaban.IDSoal)
+
+				newOutput := Output{
+					Noreg:          jawaban.NoRegister,
+					KodePaket:      jawaban.KodePaket,
+					IdSoal:         jawaban.IDSoal,
+					NoSoalDatabase: jawaban.NomorSoalDatabase,
+					KelompokUjian:  jawaban.NamaKelompokUjian,
+					JawabanSiswa:   jawaban.Jawaban,
+				}
+				output = append(output, newOutput)
+
+			}
+		} else {
+			log.Printf("detilJawaban is empty for item: %+v", item)
+		}
+	}
+
+	result := fillMissingAnswers(output)
+
+	listKodeTob := strings.Split(params.list_kode_tob, ",")
+
+	kodeTob := listKodeTob
+
+	var queryResults []QueryResult
+	if err := dbTobk.Debug().
+		Table("t_isi_tob tit").
+		Select("tit.c_kode_paket as c_kode_paket, ts.c_id_soal, tibs.c_nomor_soal, tku.c_nama_kelompok_ujian, ts.c_tipe_soal, ts.c_opsi").
+		Joins("JOIN t_paket_dan_bundel tpdb on tit.c_kode_paket = tpdb.c_kode_paket").
+		Joins("JOIN t_bundel_soal tbs on tpdb.c_id_bundel = tbs.c_id_bundel").
+		Joins("JOIN t_isi_bundel_soal tibs on tbs.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_soal ts on tibs.c_id_soal = ts.c_id_soal").
+		Joins("JOIN t_kelompok_ujian tku on tbs.c_id_kelompok_ujian = tku.c_id_kelompok_ujian").
+		Where("tit.c_kode_tob IN (?)", kodeTob).
+		Where("ts.c_id_soal IN (?)", idSoalList).
+		Order("tit.c_nomor_urut asc, tpdb.c_urutan asc, tibs.c_nomor_soal asc").
+		Scan(&queryResults).Error; err != nil {
+		log.Println(err)
+		return err
+	}
+
+	var kunciJawabSoal []KunciJawaban
+	var opsiSoal []string
+
+	for _, item := range queryResults {
+
+		var translator_jawaban_epb interface{}
+
+		kunciJawaban := setKunciJawaban(item.TipeSoal, item.Opsi)
+
+		if item.TipeSoal == "PBT" {
+
+			translate_epb := setTranslatorEPB(item.Opsi)
+			opsiSoal = translate_epb.([]string)
+
+			translate_jawaban_epb := setTranslateJawabanEPB(kunciJawaban.([]int), translate_epb.([]string))
+			translator_jawaban_epb = translate_jawaban_epb
+
+		}
+
+		newOutput := KunciJawaban{
+			KunciJawaban: func() interface{} {
+				if translator_jawaban_epb != nil {
+					return translator_jawaban_epb
+				}
+				return kunciJawaban
+			}(),
+			OpsiSoal: opsiSoal,
+			IdSoal:   item.IDSoal,
+		}
+		kunciJawabSoal = append(kunciJawabSoal, newOutput)
+
+	}
+
+	for i := range result {
+		for _, kunci := range kunciJawabSoal {
+			if result[i].IdSoal == kunci.IdSoal {
+				result[i].KunciJawaban = kunci.KunciJawaban
+				result[i].OpsiSoal = kunci.OpsiSoal
+				break
+			}
+		}
+
+		switch v := result[i].KunciJawaban.(type) {
+
+		case []interface{}:
+
+			if len(v) > 0 {
+
+				if nestedArray, ok := v[0].([]interface{}); ok && len(nestedArray) > 0 {
+					result[i].KunciJawaban = nestedArray[0]
+
+				}
+			}
+
+		}
+	}
+
+	file := excelize.NewFile()
+	sheet := "Karyawan Data"
+	index, err := file.NewSheet(sheet)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var listSoalDatabase []int
+	var listKunciJawaban []interface{}
+	var listJawabanSiswa []interface{}
+	var listNoreg []string
+	var kodePaket string
+
+	uniqueChecker := make(map[int]bool)
+	uniqueStrChecker := make(map[string]bool)
+
+	for i, kar := range result {
+
+		var translatedJawabanSiswa interface{}
+		var translatedKunciJawabanSiswa interface{}
+
+		if kar.JawabanSiswa != nil {
+
+			switch jawaban := kar.JawabanSiswa.(type) {
+
+			case []interface{}:
+
+				var jawabanInts []int
+				for _, v := range jawaban {
+
+					if val, ok := v.(float64); ok {
+						jawabanInts = append(jawabanInts, int(val))
+					}
+				}
+
+				translated := setTranslateJawabanEPB(jawabanInts, kar.OpsiSoal)
+
+				translatedJawabanSiswa = strings.Join(translated, ",")
+
+			default:
+				translatedJawabanSiswa = kar.JawabanSiswa
+
+			}
+		}
+
+		if kar.KunciJawaban != nil {
+
+			switch jawaban := kar.KunciJawaban.(type) {
+			case []string:
+
+				translatedKunciJawabanSiswa = strings.Join(jawaban, ",")
+
+			default:
+				translatedKunciJawabanSiswa = kar.KunciJawaban
+			}
+		}
+		if translatedJawabanSiswa == nil {
+			translatedJawabanSiswa = "-"
+		}
+
+		if !uniqueChecker[kar.NoSoalDatabase] {
+			uniqueChecker[kar.NoSoalDatabase] = true
+			listSoalDatabase = append(listSoalDatabase, kar.NoSoalDatabase)
+		}
+
+		if !uniqueStrChecker[kar.Noreg] {
+			uniqueStrChecker[kar.Noreg] = true
+			listNoreg = append(listNoreg, kar.Noreg)
+		}
+		if !uniqueStrChecker[kar.Noreg] {
+			uniqueStrChecker[kar.Noreg] = true
+			listNoreg = append(listNoreg, kar.Noreg)
+		}
+
+		if i < len(listSoalDatabase) {
+			listKunciJawaban = append(listKunciJawaban, translatedKunciJawabanSiswa)
+		}
+
+		listJawabanSiswa = append(listJawabanSiswa, translatedJawabanSiswa)
+		kodePaket = kar.KodePaket
+
+	}
+
+	var chunks [][]interface{}
+	chunkSize := len(listSoalDatabase)
+
+	for i := 0; i < len(listJawabanSiswa); i += chunkSize {
+		end := i + chunkSize
+		if end > len(listJawabanSiswa) {
+			end = len(listJawabanSiswa)
+		}
+		chunks = append(chunks, listJawabanSiswa[i:end])
+	}
+
+	headers := append(
+		convertToStringArray(convertIntSliceToInterface(listSoalDatabase)),
+		"no_register",
+		"kode_paket",
+	)
+
+	for i, header := range headers {
+		cell := fmt.Sprintf("%s%d", getExcelColumnName(i+1), 1)
+		file.SetCellValue(sheet, cell, header)
+	}
+
+	kunciJawabanRow := append(convertToStringArray(listKunciJawaban), "Kunci Jawaban", kodePaket)
+	for i, value := range kunciJawabanRow {
+		cell := fmt.Sprintf("%s%d", getExcelColumnName(i+1), 2)
+		file.SetCellValue(sheet, cell, value)
+	}
+
+	for rowIndex, chunk := range chunks {
+
+		rowData := append(append([]interface{}{}, chunk...), listNoreg[rowIndex], kodePaket)
+
+		for colIndex, value := range rowData {
+			cell := fmt.Sprintf("%s%d", getExcelColumnName(colIndex+1), rowIndex+3)
+			file.SetCellValue(sheet, cell, value)
+		}
+	}
+
+	file.SetActiveSheet(index)
+
+	if err := file.SaveAs("Detil-Jawaban-H-TOBK.xlsx"); err != nil {
 		return err
 	}
 
