@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"scheduler/database"
 	"sort"
 	"strconv"
@@ -24,10 +25,14 @@ type QueryParamsTobk struct {
 
 func NewQueryParamsTobk() QueryParamsTobk {
 	return QueryParamsTobk{
-		list_kode_tob: "105455",
+		list_kode_tob: "106792",
 		tahun_ajaran:  "2024/2025",
-		tanggal_awal:  "2024-11-16",
-		tanggal_akhir: "2024-11-18",
+		tanggal_awal:  "2024-12-15",
+		tanggal_akhir: "2024-12-16",
+		// list_kode_tob: "105455",
+		// tahun_ajaran:  "2024/2025",
+		// tanggal_awal:  "2024-11-16",
+		// tanggal_akhir: "2024-11-18",
 	}
 }
 
@@ -107,6 +112,14 @@ type QueryResult struct {
 	NamaKelompokUjian string     `gorm:"column:c_nama_kelompok_ujian"`
 	TipeSoal          string     `gorm:"column:c_tipe_soal"`
 	Opsi              OpsiStruct `gorm:"column:c_opsi"`
+}
+type SubResult struct {
+	KodePaket         string `gorm:"column:c_kode_paket"`
+	IDSoal            int    `gorm:"column:c_id_soal"`
+	KodeTob           int    `gorm:"column:c_kode_tob"`
+	NomorSoal         int    `gorm:"column:c_nomor_soal"`
+	IDKelompokUjian   int    `gorm:"column:c_id_kelompok_ujian"`
+	NamaKelompokUjian string `gorm:"column:c_nama_kelompok_ujian"`
 }
 
 func (a *OpsiStruct) Scan(value interface{}) error {
@@ -242,12 +255,14 @@ func setKunciJawaban(tipeSoal string, opsi OpsiStruct) interface{} {
 		return jawabanValue
 
 	case "PBK", "PBCT":
-		var kunciJawaban []map[string]interface{}
+		var kunciJawaban []interface{}
 
-		for _, v := range opsi.Kunci.(map[string]interface{}) {
-			if kunci, ok := v.(map[string]interface{}); ok {
+		for _, v := range opsi.Kunci.([]interface{}) {
+			if kunci, ok := v.(string); ok {
+				// fmt.Println("Type of kunci:", reflect.TypeOf(v))
 				kunciJawaban = append(kunciJawaban, kunci)
 			} else {
+				fmt.Println("Type of kunci:", reflect.TypeOf(v))
 				log.Printf("Failed to assert value to map[string]interface{}: %v", v)
 			}
 		}
@@ -415,6 +430,33 @@ func setTranslateJawabanEPB(jawaban []int, translator []string) []string {
 	return jawabanEPB
 }
 
+func getUniqueValues(input []int) []int {
+	uniqueMap := make(map[int]bool)
+	var uniqueList []int
+
+	for _, value := range input {
+		if !uniqueMap[value] {
+			uniqueMap[value] = true
+			uniqueList = append(uniqueList, value)
+		}
+	}
+
+	return uniqueList
+}
+
+func addUniqueKode(kodePaket *[]string, newKode string) {
+
+	uniqueMap := make(map[string]bool)
+
+	for _, kode := range *kodePaket {
+		uniqueMap[kode] = true
+	}
+
+	if !uniqueMap[newKode] {
+		*kodePaket = append(*kodePaket, newKode)
+	}
+}
+
 func FetchDetilJawabanD(db *gorm.DB) error {
 	params := NewQueryParamsTobk()
 
@@ -442,8 +484,14 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 		return err
 	}
 
-	var output []Output
 	var idSoalList []int
+
+	listKodeTob := strings.Split(params.list_kode_tob, ",")
+
+	kodeTob := listKodeTob
+
+	var kodePaket []string
+	var output []Output
 
 	for _, item := range results {
 
@@ -452,6 +500,41 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 		if len(detilJawaban) > 0 {
 			for _, jawaban := range detilJawaban {
 				idSoalList = append(idSoalList, jawaban.IDSoal)
+				addUniqueKode(&kodePaket, jawaban.KodePaket)
+			}
+		}
+	}
+
+	var subResults []SubResult
+	if err := dbTobk.Debug().
+		Table("t_isi_tob tit").
+		Select("tit.c_kode_paket, tibs.c_id_soal, tit.c_kode_tob, tibs.c_nomor_soal, tbs.c_id_kelompok_ujian, tku.c_nama_kelompok_ujian").
+		Joins("JOIN t_paket_dan_bundel tpdb on tit.c_kode_paket = tpdb.c_kode_paket").
+		Joins("JOIN t_isi_bundel_soal tibs on tpdb.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_bundel_soal tbs on tbs.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_kelompok_ujian tku on tku.c_id_kelompok_ujian = tbs.c_id_kelompok_ujian").
+		Where("tit.c_kode_paket IN (?)", kodePaket).
+		Where("tit.c_kode_tob IN (?)", kodeTob).
+		Order("tibs.c_nomor_soal asc").
+		Scan(&subResults).Error; err != nil {
+		log.Println(err)
+		return err
+	}
+
+	subResultMap := make(map[string][]SubResult)
+	for _, sub := range subResults {
+		subResultMap[sub.KodePaket] = append(subResultMap[sub.KodePaket], sub)
+	}
+
+	for _, item := range results {
+
+		detilJawaban := ProcessRawJawabanJSON(string(item.DetilJawaban))
+
+		if len(detilJawaban) > 0 {
+			for _, jawaban := range detilJawaban {
+				idSoalList = append(idSoalList, jawaban.IDSoal)
+
+				addUniqueKode(&kodePaket, jawaban.KodePaket)
 
 				newOutput := Output{
 					Noreg:          jawaban.NoRegister,
@@ -465,15 +548,26 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 
 			}
 		} else {
-			log.Printf("detilJawaban is empty for item: %+v", item)
+
+			if subs, found := subResultMap[item.KodePaket]; found {
+				for _, sub := range subs {
+					newOutput := Output{
+						Noreg:          item.NoRegister,
+						KodePaket:      sub.KodePaket,
+						IdSoal:         sub.IDSoal,
+						NoSoalDatabase: sub.NomorSoal,
+						KelompokUjian:  sub.NamaKelompokUjian,
+						JawabanSiswa:   nil,
+					}
+					output = append(output, newOutput)
+				}
+			}
 		}
 	}
 
 	result := fillMissingAnswers(output)
 
-	listKodeTob := strings.Split(params.list_kode_tob, ",")
-
-	kodeTob := listKodeTob
+	idSoalList = getUniqueValues(idSoalList)
 
 	var queryResults []QueryResult
 	if err := dbTobk.Debug().
@@ -562,6 +656,16 @@ func FetchDetilJawabanD(db *gorm.DB) error {
 		cell := getExcelColumnNameD(i) + "1"
 		file.SetCellValue(sheet, cell, header)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Noreg == result[j].Noreg {
+			if result[i].KodePaket == result[j].KodePaket {
+				return result[i].NoSoalDatabase < result[j].NoSoalDatabase
+			}
+			return result[i].KodePaket < result[j].KodePaket
+		}
+		return result[i].Noreg < result[j].Noreg
+	})
 
 	for i, kar := range result {
 
@@ -694,8 +798,46 @@ func FetchDetilJawabanH(db *gorm.DB) error {
 		return err
 	}
 
+	listKodeTob := strings.Split(params.list_kode_tob, ",")
+
+	kodeTob := listKodeTob
+
 	var output []Output
 	var idSoalList []int
+	var dafarKodePaket []string
+
+	for _, item := range results {
+
+		detilJawaban := ProcessRawJawabanJSON(string(item.DetilJawaban))
+
+		if len(detilJawaban) > 0 {
+			for _, jawaban := range detilJawaban {
+				idSoalList = append(idSoalList, jawaban.IDSoal)
+				addUniqueKode(&dafarKodePaket, jawaban.KodePaket)
+			}
+		}
+	}
+
+	var subResults []SubResult
+	if err := dbTobk.Debug().
+		Table("t_isi_tob tit").
+		Select("tit.c_kode_paket, tibs.c_id_soal, tit.c_kode_tob, tibs.c_nomor_soal, tbs.c_id_kelompok_ujian, tku.c_nama_kelompok_ujian").
+		Joins("JOIN t_paket_dan_bundel tpdb on tit.c_kode_paket = tpdb.c_kode_paket").
+		Joins("JOIN t_isi_bundel_soal tibs on tpdb.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_bundel_soal tbs on tbs.c_id_bundel = tibs.c_id_bundel").
+		Joins("JOIN t_kelompok_ujian tku on tku.c_id_kelompok_ujian = tbs.c_id_kelompok_ujian").
+		Where("tit.c_kode_paket IN (?)", dafarKodePaket).
+		Where("tit.c_kode_tob IN (?)", kodeTob).
+		Order("tibs.c_nomor_soal asc").
+		Scan(&subResults).Error; err != nil {
+		log.Println(err)
+		return err
+	}
+
+	subResultMap := make(map[string][]SubResult)
+	for _, sub := range subResults {
+		subResultMap[sub.KodePaket] = append(subResultMap[sub.KodePaket], sub)
+	}
 
 	for _, item := range results {
 
@@ -717,15 +859,26 @@ func FetchDetilJawabanH(db *gorm.DB) error {
 
 			}
 		} else {
-			log.Printf("detilJawaban is empty for item: %+v", item)
+
+			if subs, found := subResultMap[item.KodePaket]; found {
+				for _, sub := range subs {
+					newOutput := Output{
+						Noreg:          item.NoRegister,
+						KodePaket:      sub.KodePaket,
+						IdSoal:         sub.IDSoal,
+						NoSoalDatabase: sub.NomorSoal,
+						KelompokUjian:  sub.NamaKelompokUjian,
+						JawabanSiswa:   nil,
+					}
+					output = append(output, newOutput)
+				}
+			}
 		}
 	}
 
 	result := fillMissingAnswers(output)
 
-	listKodeTob := strings.Split(params.list_kode_tob, ",")
-
-	kodeTob := listKodeTob
+	idSoalList = getUniqueValues(idSoalList)
 
 	var queryResults []QueryResult
 	if err := dbTobk.Debug().
@@ -816,6 +969,16 @@ func FetchDetilJawabanH(db *gorm.DB) error {
 
 	uniqueChecker := make(map[int]bool)
 	uniqueStrChecker := make(map[string]bool)
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Noreg == result[j].Noreg {
+			if result[i].KodePaket == result[j].KodePaket {
+				return result[i].NoSoalDatabase < result[j].NoSoalDatabase
+			}
+			return result[i].KodePaket < result[j].KodePaket
+		}
+		return result[i].Noreg < result[j].Noreg
+	})
 
 	for i, kar := range result {
 
@@ -910,6 +1073,10 @@ func FetchDetilJawabanH(db *gorm.DB) error {
 	for i, value := range kunciJawabanRow {
 		cell := fmt.Sprintf("%s%d", getExcelColumnName(i+1), 2)
 		file.SetCellValue(sheet, cell, value)
+	}
+
+	if len(chunks) != len(listNoreg) {
+		log.Fatalf("Mismatch in slice lengths: chunks (%d) and listNoreg (%d)", len(chunks), len(listNoreg))
 	}
 
 	for rowIndex, chunk := range chunks {
