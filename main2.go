@@ -10,7 +10,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func main() {
+func main2() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Errorf("Error loading .env file")
@@ -31,6 +31,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	handler.FetchDetilJawabanD(handler.QueryParams{}, database.DB)
+	handler.FetchDetilJawabanH(handler.QueryParams{}, database.DB)
 
 }
