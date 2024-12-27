@@ -16,24 +16,11 @@ import (
 	"gorm.io/gorm"
 )
 
-type QueryParamsTobk struct {
+type QueryParams struct {
 	list_kode_tob string
 	tahun_ajaran  string
 	tanggal_awal  string
 	tanggal_akhir string
-}
-
-func NewQueryParamsTobk() QueryParamsTobk {
-	return QueryParamsTobk{
-		list_kode_tob: "106792",
-		tahun_ajaran:  "2024/2025",
-		tanggal_awal:  "2024-12-15",
-		tanggal_akhir: "2024-12-16",
-		// list_kode_tob: "105455",
-		// tahun_ajaran:  "2024/2025",
-		// tanggal_awal:  "2024-11-16",
-		// tanggal_akhir: "2024-11-18",
-	}
 }
 
 type InfoNilai struct {
@@ -457,8 +444,7 @@ func addUniqueKode(kodePaket *[]string, newKode string) {
 	}
 }
 
-func FetchDetilJawabanD(db *gorm.DB) error {
-	params := NewQueryParamsTobk()
+func FetchDetilJawabanD(params QueryParams, db *gorm.DB) error {
 
 	dbTobk := database.DBTOBK
 
@@ -771,8 +757,7 @@ func convertIntSliceToInterface(data []int) []interface{} {
 	return result
 }
 
-func FetchDetilJawabanH(db *gorm.DB) error {
-	params := NewQueryParamsTobk()
+func FetchDetilJawabanH(params QueryParams, db *gorm.DB) error {
 
 	dbTobk := database.DBTOBK
 
